@@ -1,0 +1,54 @@
+# Use postgres/example user/password credentials
+
+services:
+
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: user      For PostgreSQL login
+      POSTGRES_PASSWORD: user   For PostgreSQL password
+      POSTGRES_DB: best_base             For PostgreSQL database name
+    ports:
+      - "5432:5432"                      
+    volumes:
+      - pgdata:/var/lib/postgresql/data  
+
+  pgadmin:                    # Podczas laczenia z baza nazwa host to nazwa uslugi z docker-compose, czyli db
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com # login do panelu
+      PGADMIN_DEFAULT_PASSWORD: admin        #  hasło do panelu
+    ports:
+      - "5050:80"                            # localhost:5050 Port w przeglądarce
+    depends_on:
+      - db
+
+volumes:
+  pgdata:                                # Database data volume
+
+
+  
+  # cloudbeaver_data:                      # CloudBeaver data volume
+
+  # adminer:
+  #   image: adminer
+  #   restart: always
+  #   ports:
+  #     - "8080:8080"                      Not used
+  #   depends_on:
+  #     - db
+      
+  # cloudbeaver:
+  #   image: dbeaver/cloudbeaver:latest
+  #   restart: always
+  #   ports:
+  #     - "8978:8978"                    Not used because of pgAdmin, but you can change the port if needed
+  #   depends_on:
+  #     - db
+  #   volumes:
+  #     - cloudbeaver_data:/opt/cloudbeaver/workspace
+
+ 
+ 
