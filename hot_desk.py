@@ -15,7 +15,6 @@ from psycopg2 import Error
 ##Not used beacues we are using raw SQL to create tables, but it can be useful for future reference when we want to use SQLAlchemy's ORM features.
 
 CREATE_TABLES_SQL = """
--- 1. Tabele niezależne (brak kluczy obcych do innych tabel)
 CREATE TABLE IF NOT EXISTS Companies (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) UNIQUE,
@@ -33,7 +32,6 @@ CREATE TABLE IF NOT EXISTS UserGroups (
     name VARCHAR(50) UNIQUE
 );
 
--- 2. Tabele zależne (poziom 1)
 CREATE TABLE IF NOT EXISTS Buildings (
     id SERIAL PRIMARY KEY,
     location_id INT REFERENCES Locations(id) ON DELETE CASCADE,
@@ -48,7 +46,6 @@ CREATE TABLE IF NOT EXISTS WorkGroups (
     company_id INT REFERENCES Companies(id) ON DELETE CASCADE
 );
 
--- 3. Tabele zależne (poziom 2)
 CREATE TABLE IF NOT EXISTS Floors (
     id SERIAL PRIMARY KEY,
     building_id INT REFERENCES Buildings(id) ON DELETE CASCADE,
@@ -74,7 +71,7 @@ CREATE TABLE IF NOT EXISTS Users (
     hash_password VARCHAR(256)
 );
 
--- 4. Tabele zależne (poziom 3)
+
 CREATE TABLE IF NOT EXISTS Desks (
     id SERIAL PRIMARY KEY,
     floor_id INT REFERENCES Floors(id) ON DELETE CASCADE,
@@ -84,7 +81,7 @@ CREATE TABLE IF NOT EXISTS Desks (
     status VARCHAR(20)
 );
 
--- 5. Tabele zależne (poziom 4)
+
 CREATE TABLE IF NOT EXISTS Reservations (
     id SERIAL PRIMARY KEY,
     desk_id INT REFERENCES Desks(id) ON DELETE CASCADE,
@@ -101,7 +98,7 @@ def create_database_schema():
     try:
         # Connecting to the PostgreSQL database from Docker
         connection = psycopg2.connect(
-            user="user",
+            user="postgres",
             password="user",
             host="localhost", 
             port="5432",
