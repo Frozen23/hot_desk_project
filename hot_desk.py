@@ -1,3 +1,5 @@
+import os
+
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, 
     Integer, String, ForeignKey, Date, Time, DateTime, func
@@ -98,11 +100,11 @@ def create_database_schema():
     try:
         # Connecting to the PostgreSQL database from Docker
         connection = psycopg2.connect(
-            user="postgres",
-            password="user",
-            host="localhost", 
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "password"),
+            host=os.getenv("POSTGRES_HOST", "localhost"),
             port="5432",
-            database="best_base"
+            database=os.getenv("POSTGRES_DB", "best_base")
         )
         
         # Open a cursor to perform database operations
