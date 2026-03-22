@@ -67,15 +67,26 @@ def update_company(company_id: int, company: CompanyUpdate):
     try:
         connection = get_db_connection()
         with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE company SET name = %s, group_name = %s WHERE id = %s RETURNING id",
-                (company.name, company.group_name, company_id)
-            )
+
+            update_data = company.model_dump(exclude_unset=True)
+            if not update_data:
+                raise HTTPException(status_code=400, detail="No fields to update")
+            
+            set_clauses = [f"{field} = %s" for field in update_data.keys()]
+            set_clause = ", ".join(set_clauses)
+            values = list(update_data.values())
+
+            values.append(company_id)
+
+            query = f"UPDATE company SET {set_clause} WHERE id = %s RETURNING id, name, group_name"
+            
+            cursor.execute(query, values)
             updated_row = cursor.fetchone()
             if not updated_row:
                 raise HTTPException(status_code=404, detail="Company not found")
             connection.commit()
-            return Company(id=updated_row[0], name=company.name, group_name=company.group_name)
+            return Company(id=updated_row[0], name=updated_row[1], group_name=updated_row[2])
+        
     except psycopg2.IntegrityError as e:
         if 'connection' in locals():
             connection.rollback()
