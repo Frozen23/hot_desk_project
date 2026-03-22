@@ -14,6 +14,10 @@ class CompanyCreate(BaseModel):
     name: str
     group_name: Optional[str] = None
     
+class CompanyUpdate(BaseModel):
+    name: Optional[str] = None
+    group_name: Optional[str] = None
+
 class Company(BaseModel):
     id: int
     name: str
@@ -22,22 +26,22 @@ class Company(BaseModel):
 
 @router.get("/", response_model=List[Company])
 def get_company():
-    connection = get_db_connection()
     try:
+        connection = get_db_connection()
         with connection.cursor() as cursor:
             cursor.execute("SELECT id, name, group_name FROM company")
             companies = cursor.fetchall()
             return [Company(id=row[0], name=row[1], group_name=row[2]) for row in companies]
     except Error as e:
-        print(f"Error fetching company: {e}")
         raise HTTPException(status_code=500, detail="Error fetching company")
     finally:
-        connection.close()
+        if 'connection' in locals():
+            connection.close()
 
 @router.post("/create/", response_model=Company)
 def create_company(company: CompanyCreate):
-    connection = get_db_connection()
     try:
+        connection = get_db_connection()
         with connection.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO company (name, group_name) VALUES (%s, %s) RETURNING id",
@@ -47,20 +51,21 @@ def create_company(company: CompanyCreate):
             connection.commit()
             return Company(id=company_id, name=company.name, group_name=company.group_name)
     except psycopg2.IntegrityError as e:
-        connection.rollback()
-        print(f"Integrity error: {e}")
+        if 'connection' in locals():
+            connection.rollback()
         raise HTTPException(status_code=400, detail="Company with this name already exists")
     except Error as e:
-        connection.rollback()
-        print(f"Error creating company: {e}")
+        if 'connection' in locals():
+            connection.rollback()
         raise HTTPException(status_code=500, detail="Error creating company")
     finally:
-        connection.close()
+        if 'connection' in locals():
+            connection.close()
 
 @router.patch("/{company_id}/", response_model=Company)
-def update_company(company_id: int, company: CompanyCreate):
-    connection = get_db_connection()
+def update_company(company_id: int, company: CompanyUpdate):
     try:
+        connection = get_db_connection()
         with connection.cursor() as cursor:
             cursor.execute(
                 "UPDATE company SET name = %s, group_name = %s WHERE id = %s RETURNING id",
@@ -72,20 +77,21 @@ def update_company(company_id: int, company: CompanyCreate):
             connection.commit()
             return Company(id=updated_row[0], name=company.name, group_name=company.group_name)
     except psycopg2.IntegrityError as e:
-        connection.rollback()
-        print(f"Integrity error: {e}")
+        if 'connection' in locals():
+            connection.rollback()
         raise HTTPException(status_code=400, detail="Company with this name already exists")
     except Error as e:
-        connection.rollback()
-        print(f"Error updating company: {e}")
+        if 'connection' in locals():
+            connection.rollback()
         raise HTTPException(status_code=500, detail="Error updating company")
     finally:
-        connection.close()
+        if 'connection' in locals():
+            connection.close()
 
 @router.delete("/{company_id}/")
 def delete_company(company_id: int):
-    connection = get_db_connection()
     try:
+        connection = get_db_connection()
         with connection.cursor() as cursor:
             cursor.execute("DELETE FROM company WHERE id = %s RETURNING id", (company_id,))
             deleted_row = cursor.fetchone()
@@ -94,8 +100,9 @@ def delete_company(company_id: int):
             connection.commit()
             return {"detail": "Company deleted successfully"}
     except Error as e:
-        connection.rollback()
-        print(f"Error deleting company: {e}")
+        if 'connection' in locals():
+            connection.rollback()
         raise HTTPException(status_code=500, detail="Error deleting company")
     finally:
-        connection.close()
+        if 'connection' in locals():
+            connection.close()

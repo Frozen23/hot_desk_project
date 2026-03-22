@@ -1,7 +1,6 @@
 import os
 import psycopg2
 from psycopg2 import Error
-from fastapi import HTTPException
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,7 +16,7 @@ def get_db_connection():
         )
     except Error as e:
         print(f"Error connecting to database: {e}")
-        raise HTTPException(status_code=500, detail="Database connection error")
+        raise e
     
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS company (
@@ -55,9 +54,7 @@ CREATE TABLE IF NOT EXISTS floor (
     id SERIAL PRIMARY KEY,
     building_id INT REFERENCES building(id) ON DELETE CASCADE,
     level INT,
-    svg_path VARCHAR(255),
-    width INT,
-    height INT
+    name VARCHAR(50)
 );
 
 CREATE TABLE IF NOT EXISTS work_group_building (
@@ -81,9 +78,8 @@ CREATE TABLE IF NOT EXISTS desk (
     id SERIAL PRIMARY KEY,
     floor_id INT REFERENCES floor(id) ON DELETE CASCADE,
     label VARCHAR(20),
-    x INT,
-    y INT,
-    status VARCHAR(20)
+    status VARCHAR(20),
+    equipment VARCHAR(255)
 );
 
 
@@ -91,9 +87,8 @@ CREATE TABLE IF NOT EXISTS reservation (
     id SERIAL PRIMARY KEY,
     desk_id INT REFERENCES desk(id) ON DELETE CASCADE,
     employee_id INT REFERENCES employee(id) ON DELETE CASCADE,
-    date DATE,
-    start_time TIME,
-    end_time TIME,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
     status VARCHAR(20),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
