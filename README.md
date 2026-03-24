@@ -32,10 +32,31 @@ source .venv/bin/activate
 
 ### 3. Install the required packages
 pip install -r requirements.txt
+```
 
-# 3. Initialize the Database Structure (Schema)
+---
+# 3. Environment Variables Setup
 
-Once the containers are running and your Python environment is active, execute the main script to initialize the database structure:
-Bash
+The project uses a `.env` file to manage database connections. We provide an example file to help you get started quickly.
 
-python hot_desk.py
+1. Copy the example file to create your local environment file:
+   ```bash
+   cp .env.example .env
+   ```
+2. Open the `.env` file and make sure the parameters match your Docker database settings.
+
+---
+# 4. Initialize the Database Structure (Schema)
+
+Once the containers are running, your `.env` is set, and your Python environment is active, execute the main script to initialize the database structure:
+```bash
+python database.py
+```
+
+# 5. Run the FastAPI Server
+
+To start the API application, run the development server using uvicorn:
+```bash
+uvicorn main:app --reload 
+```
+You can access the interactive documentation (Swagger) at: http://127.0.0.1:8000/docs
