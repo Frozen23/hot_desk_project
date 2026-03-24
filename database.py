@@ -16,7 +16,7 @@ def get_db_connection():
         )
     except Error as e:
         print(f"Error connecting to database: {e}")
-        raise e
+        raise
     
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS company (
@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS reservation (
 """
 
 def create_database_schema():
+    connection = None  
+    cursor = None  
     try:
         connection = get_db_connection()
         cursor = connection.cursor()
@@ -110,10 +112,20 @@ def create_database_schema():
         print(f"Error creating tables: {e}")
         
     finally:
-        if 'connection' in locals() and connection:
+        if cursor:
             cursor.close()
+        if  connection:
             connection.close()
             print("Connection to database has been closed.")
+
+def get_db():  
+    connection = None  
+    try:  
+        connection = get_db_connection()  
+        yield connection 
+    finally:
+        if connection:  
+            connection.close() 
 
 if __name__ == "__main__":
     create_database_schema()
