@@ -22,7 +22,7 @@ docker compose up -d
 # 2. Python Environment Setup
 
 The scripts that build the database require specific libraries. Run the following commands to create an isolated virtual environment and install the dependencies:
-Bash
+```bash
 
 ### 1. Create a virtual environment
 python3 -m venv .venv
