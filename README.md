@@ -40,9 +40,9 @@ pip install -r requirements.txt
 The project uses a `.env` file to manage database connections. We provide an example file to help you get started quickly.
 
 1. Copy the example file to create your local environment file:
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env
+```
 2. Open the `.env` file and make sure the parameters match your Docker database settings.
 
 ---
