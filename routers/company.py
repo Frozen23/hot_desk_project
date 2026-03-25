@@ -1,7 +1,7 @@
 from typing import Optional, List
 import psycopg2
 from psycopg2 import Error
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response
 from pydantic import BaseModel
 from database import get_db
 
@@ -29,12 +29,11 @@ def get_company(connection=Depends(get_db)):
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT id, name, group_name FROM company")
-            companies = cursor.fetchall()
-            return [Company(id=row[0], name=row[1], group_name=row[2]) for row in companies]
+            return [Company(id=row[0], name=row[1], group_name=row[2]) for row in cursor]
     except Error as e:
         raise HTTPException(status_code=500, detail="Error fetching company")
 
-@router.post("/create/", response_model=Company)
+@router.post("/", response_model=Company)
 def create_company(company: CompanyCreate, connection=Depends(get_db)):
     try:
         with connection.cursor() as cursor:
@@ -42,9 +41,8 @@ def create_company(company: CompanyCreate, connection=Depends(get_db)):
                 "INSERT INTO company (name, group_name) VALUES (%s, %s) RETURNING id",
                 (company.name, company.group_name)
             )
-            company_id = cursor.fetchone()[0]
             connection.commit()
-            return Company(id=company_id, name=company.name, group_name=company.group_name)
+            return Response(status_code=201)
     except psycopg2.IntegrityError as e:
         if connection:
             connection.rollback()
@@ -96,7 +94,7 @@ def delete_company(company_id: int, connection=Depends(get_db)):
             if not deleted_row:
                 raise HTTPException(status_code=404, detail="Company not found")
             connection.commit()
-            return {"detail": "Company deleted successfully"}
+            return Response(status_code=204)
     except Error as e:
         if connection:
             connection.rollback()
