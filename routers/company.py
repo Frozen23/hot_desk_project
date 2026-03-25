@@ -33,7 +33,7 @@ def get_company(connection=Depends(get_db)):
     except Error as e:
         raise HTTPException(status_code=500, detail="Error fetching company")
 
-@router.post("/", response_model=Company)
+@router.post("/", response_model=Company, status_code=201)
 def create_company(company: CompanyCreate, connection=Depends(get_db)):
     try:
         with connection.cursor() as cursor:
@@ -85,7 +85,7 @@ def update_company(company_id: int, company: CompanyUpdate, connection=Depends(g
             connection.rollback()
         raise HTTPException(status_code=500, detail="Error updating company")
 
-@router.delete("/{company_id}/")
+@router.delete("/{company_id}/",status_code=204)
 def delete_company(company_id: int, connection=Depends(get_db)):
     try:
         with connection.cursor() as cursor:
