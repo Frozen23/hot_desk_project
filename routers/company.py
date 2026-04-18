@@ -1,101 +1,99 @@
-from typing import Optional, List
-import psycopg2
-from psycopg2 import Error
 from fastapi import APIRouter, HTTPException, Depends, Response
-from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+from typing import List
 from database import get_db
+from schemas import CompanyCreate, CompanyUpdate, Company
 
 router = APIRouter(
     prefix="/company",
     tags=["company"]
 )
 
-class CompanyCreate(BaseModel):
-    name: str
-    group_name: Optional[str] = None
-    
-class CompanyUpdate(BaseModel):
-    name: Optional[str] = None
-    group_name: Optional[str] = None
-
-class Company(BaseModel):
-    id: int
-    name: str
-    group_name: Optional[str] = None
-
-
 @router.get("/", response_model=List[Company])
-def get_company(connection=Depends(get_db)):
+def get_company(db: Session = Depends(get_db)):
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT id, name, group_name FROM company")
-            return [Company(id=row[0], name=row[1], group_name=row[2]) for row in cursor]
-    except Error as e:
-        raise HTTPException(status_code=500, detail="Error fetching company")
+        query = text("SELECT id, name, group_name FROM company")
+        result = db.execute(query).fetchall()
+        
+        return [Company(id=row.id, name=row.name, group_name=row.group_name) for row in result]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error fetching companies")
 
 @router.post("/", response_model=Company, status_code=201)
-def create_company(company: CompanyCreate, connection=Depends(get_db)):
+def create_company(company: CompanyCreate, db: Session = Depends(get_db)):
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO company (name, group_name) VALUES (%s, %s) RETURNING id",
-                (company.name, company.group_name)
-            )
-            connection.commit()
-            return Response(status_code=201)
-    except psycopg2.IntegrityError as e:
-        if connection:
-            connection.rollback()
+        query = text("""
+            INSERT INTO company (name, group_name) 
+            VALUES (:name, :group_name) 
+            RETURNING id, name, group_name
+        """)
+        
+        result = db.execute(query, {"name": company.name, "group_name": company.group_name})
+        new_company = result.fetchone()
+        db.commit()
+        
+        return Company(id=new_company.id, name=new_company.name, group_name=new_company.group_name)
+    
+    except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=400, detail="Company with this name already exists")
-    except Error as e:
-        if connection:
-            connection.rollback()
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail="Error creating company")
 
 @router.patch("/{company_id}/", response_model=Company)
-def update_company(company_id: int, company: CompanyUpdate, connection=Depends(get_db)):
+def update_company(company_id: int, company: CompanyUpdate, db: Session = Depends(get_db)):
     try:
-        with connection.cursor() as cursor:
-
-            update_data = company.model_dump(exclude_unset=True)
-            if not update_data:
-                raise HTTPException(status_code=400, detail="No fields to update")
+        update_data = company.model_dump(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
             
-            set_clauses = [f"{field} = %s" for field in update_data.keys()]
-            set_clause = ", ".join(set_clauses)
-            values = list(update_data.values())
-
-            values.append(company_id)
-
-            query = f"UPDATE company SET {set_clause} WHERE id = %s RETURNING id, name, group_name"
-            
-            cursor.execute(query, values)
-            updated_row = cursor.fetchone()
-            if not updated_row:
-                raise HTTPException(status_code=404, detail="Company not found")
-            connection.commit()
-            return Company(id=updated_row[0], name=updated_row[1], group_name=updated_row[2])
+        set_clauses = [f"{field} = :{field}" for field in update_data.keys()]
+        set_clause = ", ".join(set_clauses)
         
-    except psycopg2.IntegrityError as e:
-        if connection:
-            connection.rollback()
+        query = text(f"""
+            UPDATE company 
+            SET {set_clause} 
+            WHERE id = :id 
+            RETURNING id, name, group_name
+        """)
+        
+        params = update_data.copy()
+        params["id"] = company_id
+        
+        result = db.execute(query, params)
+        updated_row = result.fetchone()
+        
+        if not updated_row:
+            raise HTTPException(status_code=404, detail="Company not found")
+            
+        db.commit()
+        return Company(id=updated_row.id, name=updated_row.name, group_name=updated_row.group_name)
+        
+    except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=400, detail="Company with this name already exists")
-    except Error as e:
-        if connection:
-            connection.rollback()
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail="Error updating company")
 
-@router.delete("/{company_id}/",status_code=204)
-def delete_company(company_id: int, connection=Depends(get_db)):
+@router.delete("/{company_id}/", status_code=204)
+def delete_company(company_id: int, db: Session = Depends(get_db)):
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM company WHERE id = %s RETURNING id", (company_id,))
-            deleted_row = cursor.fetchone()
-            if not deleted_row:
-                raise HTTPException(status_code=404, detail="Company not found")
-            connection.commit()
-            return Response(status_code=204)
-    except Error as e:
-        if connection:
-            connection.rollback()
+        query = text("DELETE FROM company WHERE id = :id RETURNING id")
+        result = db.execute(query, {"id": company_id})
+        deleted_row = result.fetchone()
+        
+        if not deleted_row:
+            raise HTTPException(status_code=404, detail="Company not found")
+            
+        db.commit()
+        return Response(status_code=204)
+        
+    except Exception as e:
+        db.rollback()
         raise HTTPException(status_code=500, detail="Error deleting company")
