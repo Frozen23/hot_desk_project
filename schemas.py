@@ -16,3 +16,11 @@ class Company(BaseModel):
 
     class Config:
         from_attributes = True
+
+class AvailableDesk(BaseModel):
+    desk_id: int
+    label: str
+    equipment: str
+    floor_level: int
+    building_name: str
+    city: str
