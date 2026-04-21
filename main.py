@@ -1,12 +1,14 @@
 from fastapi import FastAPI
 from database import create_database_schema
 from routers import company
+from routers import desks
 
 create_database_schema()
 
 app = FastAPI(title="Hot Desk API") 
 
 app.include_router(company.router)
+app.include_router(desks.router)
 
 if __name__ == "__main__":
     import uvicorn

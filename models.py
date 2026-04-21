@@ -73,11 +73,3 @@ class Reservation(Base):
     end_time = Column(DateTime)
     status = Column(String(20))
     created_at = Column(DateTime, server_default=func.now())
-
-class AvailableDesk(Base):
-    desk_id: int
-    label: str
-    equipment: str
-    floor_level: int
-    building_name: str
-    city: str
