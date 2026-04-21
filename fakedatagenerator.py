@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 # Upewnij się, że importujesz model Reservation (i ewentualnie Employee/User, jeśli jest wymagany w relacji)
-from models import Building, Company, Desk, Floor, Location, Reservation
+from models import Building, Company, Desk, Employee, Floor, Location, Reservation
 
 fake = Faker("en_US")
 
@@ -126,6 +126,16 @@ def seed_database():
 
         desks_inserted = flush_batch(session, Desk, desks_batch, desks_inserted, total_desks, "desks")
 
+        
+        print("Generating test employee...")
+        employee_id = bulk_insert_ids(session, Employee, [{
+            "first_name": "Test",
+            "last_name": "User",
+            "email": "test@example.com",
+            "hash_password": "hashed_password",
+        }])[0]
+        session.commit()
+
         # --- GENEROWANIE 300 000 REZERWACJI ---
         total_reservations = total_desks * RESERVATIONS_PER_DESK
         print(f"Generating {total_reservations} reservations for a 300-day period...")
@@ -133,7 +143,7 @@ def seed_database():
         # Pobieramy ID wygenerowanych biurek (będą potrzebne do stworzenia relacji)
         all_desk_ids = session.execute(select(Desk.id)).scalars().all()
         
-        base_date = datetime.today().date()
+        base_date = datetime.now()
         reservations_batch = []
         reservations_inserted = 0
 
@@ -142,14 +152,16 @@ def seed_database():
             random_days_offsets = random.sample(range(DAYS_OF_OPERATION), RESERVATIONS_PER_DESK)
             
             for offset in random_days_offsets:
-                reservation_date = base_date - timedelta(days=offset)
+                reservation_start = base_date - timedelta(days=offset)
+                reservation_end = reservation_start + timedelta(hours=8)
                 
                 # Dostosuj nazwy kolumn poniżej do swojego modelu `Reservation`
                 reservations_batch.append({
                     "desk_id": desk_id,
-                    "start_date": reservation_date,
-                    "end_date": reservation_date,
-                    # "employee_id": 1, # Jeśli relacja z pracownikiem jest wymagana (NOT NULL), dodaj ją tutaj
+                    "start_time": reservation_start,
+                    "end_time": reservation_end,
+                    "employee_id": employee_id,
+                    "status": "reserved"
                 })
 
             if len(reservations_batch) >= BATCH_SIZE:
