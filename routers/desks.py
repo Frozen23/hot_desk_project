@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from typing import List
 from datetime import date
@@ -12,10 +12,10 @@ router = APIRouter(
 )
 
 @router.get("/available/", response_model=List[AvailableDesk])
-def search_available_desks(
+async def search_available_desks(
     city: str, 
     target_date: date, 
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     try:
         query = text("""
@@ -41,7 +41,8 @@ def search_available_desks(
             ORDER BY b.name, f.level, d.label
         """)
         
-        result = db.execute(query, {"city": city, "target_date": target_date}).fetchall()
+        result = await db.execute(query, {"city": city, "target_date": target_date})
+        rows = result.fetchall()
         
         return [
             AvailableDesk(
@@ -51,7 +52,7 @@ def search_available_desks(
                 floor_level=row.floor_level,
                 building_name=row.building_name,
                 city=row.city
-            ) for row in result
+            ) for row in rows
         ]
         
     except Exception as e:
