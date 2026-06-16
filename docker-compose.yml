@@ -1,20 +1,27 @@
 services:
-  # 1. MASTER (PRIMARY) - Tutaj trafiają wszystkie INSERT / UPDATE / DELETE
+  # 1. MASTER (PRIMARY)
   db-master:
-    image: postgresql:15
+    image: postgres:15
     restart: always
     environment:
-      POSTGRESQL_USERNAME: ${POSTGRES_USER}
-      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRESQL_DATABASE: ${POSTGRES_DB}
-      POSTGRESQL_REPLICATION_MODE: master
-      POSTGRESQL_REPLICATION_USER: replica_user
-      POSTGRESQL_REPLICATION_PASSWORD: replica_password
-      POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pg_stat_statements
-      POSTGRESQL_MAX_CONNECTIONS: 200
-    command: /opt/bitnami/scripts/postgresql/run.sh -c pg_stat_statements.track=all
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command: >
+      postgres 
+      -c wal_level=replica 
+      -c max_wal_senders=10 
+      -c max_replication_slots=10 
+      -c shared_preload_libraries=pg_stat_statements 
+      -c pg_stat_statements.track=all 
+      -c max_connections=200
     volumes:
-      - pgdata_master:/var/lib/postgresql/data 
+      - pgdata_master:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     deploy: &resources
       resources:
         limits:
@@ -24,51 +31,68 @@ services:
           cpus: '0.50'
           memory: 512M
 
-  # 2. SLAVE (REPLICA) - Stąd Twój ciężki GET będzie błyskawicznie czytał dane
+  # 2. SLAVE (REPLICA)
   db-replica:
-    image: postgresql:15
+    image: postgres:15
     restart: always
     depends_on:
-      - db-master
+      db-master:
+        condition: service_healthy
     environment:
-      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRESQL_MASTER_HOST: db-master
-      POSTGRESQL_MASTER_PORT_NUMBER: 5432
-      POSTGRESQL_REPLICATION_MODE: slave
-      POSTGRESQL_REPLICATION_USER: replica_user
-      POSTGRESQL_REPLICATION_PASSWORD: replica_password
-      POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pg_stat_statements
-      POSTGRESQL_MAX_CONNECTIONS: 200
-    command: /opt/bitnami/scripts/postgresql/run.sh -c pg_stat_statements.track=all
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata_replica:/var/lib/postgresql/data
+    entrypoint: |
+      bash -c "
+      if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
+        echo 'Brak danych. Inicjalizacja repliki z mastera...'
+        until pg_isready -h db-master -p 5432 -U \$$POSTGRES_USER; do
+          echo 'Oczekiwanie na gotowość mastera...'
+          sleep 2
+        done
+        pg_basebackup -h db-master -p 5432 -U \$$POSTGRES_USER -D /var/lib/postgresql/data -Fp -Xs -R -P
+      fi
+      exec docker-entrypoint.sh postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c max_connections=200
+      "
     deploy:
       <<: *resources
 
-  # 3. PROXY (PGPOOL-II) - Serce systemu rozdzielające ruch (brak zmian w kodzie FastAPI)
+  # 3. PROXY (PGPOOL-II)
   pgpool:
-    image: pgpool:4
+    image: pgpool/pgpool:latest
     restart: always
     ports:
-      - "5432:5432" # Kluczowy moment: Pgpool przejmuje port 5432. FastAPI nic nie musi zmieniać!
+      - "5432:5432"
     depends_on:
-      - db-master
-      - db-replica
+      db-master:
+        condition: service_healthy
+      db-replica:
+        condition: service_started
     environment:
-      PGPOOL_BACKEND_NODES: 0:db-master:5432,1:db-replica:5432
-      PGPOOL_SR_CHECK_USER: ${POSTGRES_USER}
-      PGPOOL_SR_CHECK_PASSWORD: ${POSTGRES_PASSWORD}
-      PGPOOL_SR_CHECK_DATABASE: ${POSTGRES_DB}
-      PGPOOL_USER: ${POSTGRES_USER}
-      PGPOOL_PASSWORD: ${POSTGRES_PASSWORD}
-      PGPOOL_ENABLE_LOAD_BALANCING: "yes"
-      # Wagi dla Load Balancera: 0 dla Mastera, 1 dla Repliki. 
-      # Dzięki temu CAŁY ruch typu SELECT (Twój GET) zostanie przekierowany wyłącznie na Slave'a.
-      PGPOOL_WEIGHTS: 0,1 
+      PGPOOL_PARAMS_BACKEND_HOSTNAME0: db-master
+      PGPOOL_PARAMS_BACKEND_PORT0: "5432"
+      PGPOOL_PARAMS_BACKEND_WEIGHT0: "0"
+      PGPOOL_PARAMS_BACKEND_FLAG0: ALWAYS_PRIMARY
 
-  # 4. PANEL PANEL ADMISTRACYJNY
+      PGPOOL_PARAMS_BACKEND_HOSTNAME1: db-replica
+      PGPOOL_PARAMS_BACKEND_PORT1: "5432"
+      PGPOOL_PARAMS_BACKEND_WEIGHT1: "1"
+      PGPOOL_PARAMS_BACKEND_FLAG1: ALLOW_TO_FAIL
+
+      PGPOOL_PARAMS_MASTER_SLAVE_SUB_MODE: stream
+      PGPOOL_PARAMS_LOAD_BALANCING_MODE: "on"
+      PGPOOL_PARAMS_SR_CHECK_PERIOD: "10"
+      PGPOOL_PARAMS_SR_CHECK_USER: ${POSTGRES_USER}
+      PGPOOL_PARAMS_SR_CHECK_PASSWORD: ${POSTGRES_PASSWORD}
+      PGPOOL_PARAMS_SR_CHECK_DATABASE: ${POSTGRES_DB}
+      PGPOOL_PARAMS_POOL_HBA_BACKEND_METHOD: trust
+
+  # 4. PANEL ADMINISTRACYJNY
   pgadmin:
-    image: pgadmin4
+    image: dpage/pgadmin4
     restart: always
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
