@@ -3,31 +3,30 @@ services:
   db-master:
     image: postgres:15
     restart: always
+    ports:
+      - "5433:5432" # Do bezpośrednich migracji i tworzenia tabel z Pythona
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - pgdata_master:/var/lib/postgresql/data
-    # KROK 1: Nadpisujemy entrypoint Mastera, aby przed startem bazy dopisał regułę "wpuść replikację" do konfiguracji
     entrypoint:
       - bash
       - -c
       - |
-        # Inicjalizujemy bazę standardowym skryptem, jeśli wolumen jest pusty
         docker-entrypoint.sh postgres --version > /dev/null
         if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
           echo "Inicjalizacja konfiguracji Mastera..."
-          # Tworzymy tymczasowo bazę, aby wygenerować pliki konfiguracyjne
           _main() { docker-entrypoint.sh postgres & PID=$!; sleep 5; kill $PID; wait $PID; }
           _main
         fi
-        # Dopisujemy regułę zezwalającą na replikację dla każdego hosta w sieci Dockera
+        # Konfiguracja zabezpieczeń pg_hba: wpuszczamy replikację (md5) i ruch z proxy (trust)
         if ! grep -q "host replication all all md5" /var/lib/postgresql/data/pg_hba.conf; then
           echo "host replication all all md5" >> /var/lib/postgresql/data/pg_hba.conf
+          echo "host all all all trust" >> /var/lib/postgresql/data/pg_hba.conf # <-- POPRAWIONO: trust zamiast password
         fi
-        # Uruchamiamy właściwy proces z parametrami replikacji
         exec docker-entrypoint.sh postgres -c wal_level=replica -c max_wal_senders=10 -c max_replication_slots=10 -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c max_connections=200
+    volumes:
+      - pgdata_master:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -53,7 +52,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      PGPASSWORD: ${POSTGRES_PASSWORD} # <-- TO HASŁO JEST PRZEKAZYWANE DO pg_basebackup!
+      PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - pgdata_replica:/var/lib/postgresql/data
     entrypoint:
@@ -62,32 +61,29 @@ services:
       - |
         set -e
         if [ ! -s /var/lib/postgresql/data/PG_VERSION ]; then
-          echo "Wolumen jest czysty. Rozpoczynam klonowanie Mastera..."
+          echo "Wolumen czysty. Klonowanie bazy z Mastera..."
           until pg_isready -h db-master -p 5432 -U $POSTGRES_USER; do
-            echo "Czekam na pelna gotowosc bazy Master..."
             sleep 2
           done
           rm -rf /var/lib/postgresql/data/*
-          # pg_basebackup automatycznie użyje zmiennej $PGPASSWORD z sekcji environment
           pg_basebackup -h db-master -p 5432 -U $POSTGRES_USER -D /var/lib/postgresql/data -Fp -Xs -R -P
-          echo "Klonowanie zakonczone sukcesem!"
         fi
         exec docker-entrypoint.sh postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c max_connections=200
     deploy:
       <<: *resources
-  # 3. PROXY (PGPOOL-II) - Oficjalny obraz społeczności Pgpool
+
+  # 3. PROXY (PGPOOL-II)
   pgpool:
     image: pgpool/pgpool:latest
     restart: always
     ports:
-      - "5432:5432"
+      - "5432:9999" # Mapowanie portu 5432 hosta na wewnętrzny port 9999 Pgpoola
     depends_on:
       db-master:
         condition: service_healthy
       db-replica:
         condition: service_started
     environment:
-      # Konfiguracja węzłów (Master = 0, Replica = 1)
       PGPOOL_PARAMS_BACKEND_HOSTNAME0: db-master
       PGPOOL_PARAMS_BACKEND_PORT0: "5432"
       PGPOOL_PARAMS_BACKEND_WEIGHT0: "0"
@@ -96,18 +92,17 @@ services:
       PGPOOL_PARAMS_BACKEND_PORT1: "5432"
       PGPOOL_PARAMS_BACKEND_WEIGHT1: "1"
 
-      # Włączenie trybu Streaming Replication i Load Balancing
       PGPOOL_PARAMS_MASTER_SLAVE_SUB_MODE: stream
       PGPOOL_PARAMS_LOAD_BALANCING_MODE: "on"
-
-      # Sprawdzanie stanu replikacji bazy
       PGPOOL_PARAMS_SR_CHECK_PERIOD: "10"
       PGPOOL_PARAMS_SR_CHECK_USER: ${POSTGRES_USER}
       PGPOOL_PARAMS_SR_CHECK_PASSWORD: ${POSTGRES_PASSWORD}
       PGPOOL_PARAMS_SR_CHECK_DATABASE: ${POSTGRES_DB}
 
-      # Uwierzytelnianie uproszczone wewnątrz sieci kontenerów
+      # Pełna komunikacja bezhasłowa (trust) wewnątrz sieci kontenerów
+      PGPOOL_PARAMS_ENABLE_POOL_HBA: "on"
       PGPOOL_PARAMS_POOL_HBA_BACKEND_METHOD: trust
+      PGPOOL_PARAMS_AUTHENTICATION_METHOD: trust
 
   # 4. PANEL ADMINISTRACYJNY
   pgadmin:
