@@ -20,9 +20,14 @@ services:
           _main
         fi
         # Konfiguracja zabezpieczeń pg_hba: wpuszczamy replikację (md5) i ruch z proxy (trust)
+        # WAŻNE: domyślna reguła "host all all all scram-sha-256" jest pierwsza i przesłaniała trust,
+        # dlatego podmieniamy ją na trust (Postgres bierze pierwszą pasującą regułę).
+        sed -i 's/^host all all all scram-sha-256/host all all all trust/' /var/lib/postgresql/data/pg_hba.conf
         if ! grep -q "host replication all all md5" /var/lib/postgresql/data/pg_hba.conf; then
           echo "host replication all all md5" >> /var/lib/postgresql/data/pg_hba.conf
-          echo "host all all all trust" >> /var/lib/postgresql/data/pg_hba.conf # <-- POPRAWIONO: trust zamiast password
+        fi
+        if ! grep -q "host all all all trust" /var/lib/postgresql/data/pg_hba.conf; then
+          echo "host all all all trust" >> /var/lib/postgresql/data/pg_hba.conf
         fi
         exec docker-entrypoint.sh postgres -c wal_level=replica -c max_wal_senders=10 -c max_replication_slots=10 -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c max_connections=200
     volumes:
@@ -84,25 +89,40 @@ services:
       db-replica:
         condition: service_started
     environment:
+      # Tryb klastra: replikacja strumieniowa (pgpool 4.x). Stare master_slave_sub_mode już nie działa.
+      PGPOOL_PARAMS_BACKEND_CLUSTERING_MODE: streaming_replication
+
+      # Backend 0 = MASTER (primary). waga 0 => nie dostaje load-balancowanych SELECTów (tylko zapisy/DDL)
       PGPOOL_PARAMS_BACKEND_HOSTNAME0: db-master
       PGPOOL_PARAMS_BACKEND_PORT0: "5432"
       PGPOOL_PARAMS_BACKEND_WEIGHT0: "0"
+      PGPOOL_PARAMS_BACKEND_FLAG0: ALWAYS_PRIMARY
 
+      # Backend 1 = REPLICA (standby). waga 1 => dostaje load-balancowane SELECTy
       PGPOOL_PARAMS_BACKEND_HOSTNAME1: db-replica
       PGPOOL_PARAMS_BACKEND_PORT1: "5432"
       PGPOOL_PARAMS_BACKEND_WEIGHT1: "1"
 
-      PGPOOL_PARAMS_MASTER_SLAVE_SUB_MODE: stream
-      PGPOOL_PARAMS_LOAD_BALANCING_MODE: "on"
+      # Load balancing odczytów
+      PGPOOL_PARAMS_LOAD_BALANCE_MODE: "on"
+
+      # Streaming replication check (poprawna nazwa parametru)
       PGPOOL_PARAMS_SR_CHECK_PERIOD: "10"
       PGPOOL_PARAMS_SR_CHECK_USER: ${POSTGRES_USER}
       PGPOOL_PARAMS_SR_CHECK_PASSWORD: ${POSTGRES_PASSWORD}
       PGPOOL_PARAMS_SR_CHECK_DATABASE: ${POSTGRES_DB}
 
-      # Pełna komunikacja bezhasłowa (trust) wewnątrz sieci kontenerów
-      PGPOOL_PARAMS_ENABLE_POOL_HBA: "on"
-      PGPOOL_PARAMS_POOL_HBA_BACKEND_METHOD: trust
-      PGPOOL_PARAMS_AUTHENTICATION_METHOD: trust
+      # Health check backendów
+      PGPOOL_PARAMS_HEALTH_CHECK_PERIOD: "10"
+      PGPOOL_PARAMS_HEALTH_CHECK_USER: ${POSTGRES_USER}
+      PGPOOL_PARAMS_HEALTH_CHECK_PASSWORD: ${POSTGRES_PASSWORD}
+      PGPOOL_PARAMS_HEALTH_CHECK_DATABASE: ${POSTGRES_DB}
+
+      # Backendy używają trust (patrz pg_hba mastera) => wyłączamy pool_hba,
+      # ale generujemy pool_passwd na wypadek auth md5/scram od strony klienta.
+      PGPOOL_ENABLE_POOL_HBA: "no"
+      PGPOOL_POSTGRES_USERNAME: ${POSTGRES_USER}
+      PGPOOL_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
   # 4. PANEL ADMINISTRACYJNY
   pgadmin:
