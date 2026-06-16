@@ -20,8 +20,8 @@ ASYNC_SQLALCHEMY_DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 async_engine = create_async_engine(ASYNC_SQLALCHEMY_DATABASE_URL, echo=False,
-    pool_size=50,        
-    max_overflow=100,    
+    pool_size=5,        
+    max_overflow=10,    
     pool_timeout=30)
 AsyncSessionLocal = async_sessionmaker(async_engine, expire_on_commit=False)
 
