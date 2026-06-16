@@ -1,0 +1,64 @@
+# Use postgres/example user/password credentials
+
+services:
+
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"                      
+    volumes:
+      - pgdata:/var/lib/postgresql/data 
+    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c max_connections=200 
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'      
+          memory: 1.5G     
+        reservations:
+          cpus: '0.4'      
+          memory: 1G    
+
+  pgadmin:                    # Podczas laczenia z baza nazwa host to nazwa uslugi z docker-compose, czyli db
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}        # email do panelu
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}     # haslo do panelu
+    ports:
+      - "5050:80"                            # localhost:5050 Port w przeglądarce
+    depends_on:
+      - db
+  
+
+volumes:
+  pgdata:                                # Database data volume
+
+
+  
+  # cloudbeaver_data:                      # CloudBeaver data volume
+
+  # adminer:
+  #   image: adminer
+  #   restart: always
+  #   ports:
+  #     - "8080:8080"                      Not used
+  #   depends_on:
+  #     - db
+      
+  # cloudbeaver:
+  #   image: dbeaver/cloudbeaver:latest
+  #   restart: always
+  #   ports:
+  #     - "8978:8978"                    Not used because of pgAdmin, but you can change the port if needed
+  #   depends_on:
+  #     - db
+  #   volumes:
+  #     - cloudbeaver_data:/opt/cloudbeaver/workspace
+
+ 
+ 

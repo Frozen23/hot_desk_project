@@ -35,8 +35,6 @@ async def create_reservation(reservation: ReservationCreate, db: AsyncSession = 
 
 		if not desk_row:
 			raise HTTPException(status_code=404, detail="Desk not found")
-		if desk_row.status == "maintenance":
-			raise HTTPException(status_code=400, detail="Desk is under maintenance")
 
 		employee_query = text("""
 			SELECT id
@@ -66,8 +64,8 @@ async def create_reservation(reservation: ReservationCreate, db: AsyncSession = 
 			},
 		)
 
-		if conflict_result.fetchone():
-			raise HTTPException(status_code=400, detail="Desk is already reserved for this time range")
+		# if conflict_result.fetchone():
+		# 	raise HTTPException(status_code=400, detail="Desk is already reserved for this time range")
 
 		insert_query = text("""
 			INSERT INTO reservation (desk_id, employee_id, start_time, end_time, status)

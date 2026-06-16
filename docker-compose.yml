@@ -1,55 +1,83 @@
-# Use postgres/example user/password credentials
-
 services:
-
-  db:
-    image: postgres:15
+  # 1. MASTER (PRIMARY) - Tutaj trafiają wszystkie INSERT / UPDATE / DELETE
+  db-master:
+    image: postgresql:15
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"                      
+      POSTGRESQL_USERNAME: ${POSTGRES_USER}
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRESQL_DATABASE: ${POSTGRES_DB}
+      POSTGRESQL_REPLICATION_MODE: master
+      POSTGRESQL_REPLICATION_USER: replica_user
+      POSTGRESQL_REPLICATION_PASSWORD: replica_password
+      POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pg_stat_statements
+      POSTGRESQL_MAX_CONNECTIONS: 200
+    command: /opt/bitnami/scripts/postgresql/run.sh -c pg_stat_statements.track=all
     volumes:
-      - pgdata:/var/lib/postgresql/data 
-    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all -c max_connections=200 
+      - pgdata_master:/var/lib/postgresql/data 
+    deploy: &resources
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1024M
+        reservations:
+          cpus: '0.50'
+          memory: 512M
 
-  pgadmin:                    # Podczas laczenia z baza nazwa host to nazwa uslugi z docker-compose, czyli db
-    image: dpage/pgadmin4
+  # 2. SLAVE (REPLICA) - Stąd Twój ciężki GET będzie błyskawicznie czytał dane
+  db-replica:
+    image: postgresql:15
+    restart: always
+    depends_on:
+      - db-master
+    environment:
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRESQL_MASTER_HOST: db-master
+      POSTGRESQL_MASTER_PORT_NUMBER: 5432
+      POSTGRESQL_REPLICATION_MODE: slave
+      POSTGRESQL_REPLICATION_USER: replica_user
+      POSTGRESQL_REPLICATION_PASSWORD: replica_password
+      POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pg_stat_statements
+      POSTGRESQL_MAX_CONNECTIONS: 200
+    command: /opt/bitnami/scripts/postgresql/run.sh -c pg_stat_statements.track=all
+    volumes:
+      - pgdata_replica:/var/lib/postgresql/data
+    deploy:
+      <<: *resources
+
+  # 3. PROXY (PGPOOL-II) - Serce systemu rozdzielające ruch (brak zmian w kodzie FastAPI)
+  pgpool:
+    image: pgpool:4
+    restart: always
+    ports:
+      - "5432:5432" # Kluczowy moment: Pgpool przejmuje port 5432. FastAPI nic nie musi zmieniać!
+    depends_on:
+      - db-master
+      - db-replica
+    environment:
+      PGPOOL_BACKEND_NODES: 0:db-master:5432,1:db-replica:5432
+      PGPOOL_SR_CHECK_USER: ${POSTGRES_USER}
+      PGPOOL_SR_CHECK_PASSWORD: ${POSTGRES_PASSWORD}
+      PGPOOL_SR_CHECK_DATABASE: ${POSTGRES_DB}
+      PGPOOL_USER: ${POSTGRES_USER}
+      PGPOOL_PASSWORD: ${POSTGRES_PASSWORD}
+      PGPOOL_ENABLE_LOAD_BALANCING: "yes"
+      # Wagi dla Load Balancera: 0 dla Mastera, 1 dla Repliki. 
+      # Dzięki temu CAŁY ruch typu SELECT (Twój GET) zostanie przekierowany wyłącznie na Slave'a.
+      PGPOOL_WEIGHTS: 0,1 
+
+  # 4. PANEL PANEL ADMISTRACYJNY
+  pgadmin:
+    image: pgadmin4
     restart: always
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}        # email do panelu
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}     # haslo do panelu
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
-      - "5050:80"                            # localhost:5050 Port w przeglądarce
+      - "5050:80"
     depends_on:
-      - db
+      - pgpool
 
 volumes:
-  pgdata:                                # Database data volume
-
-
-  
-  # cloudbeaver_data:                      # CloudBeaver data volume
-
-  # adminer:
-  #   image: adminer
-  #   restart: always
-  #   ports:
-  #     - "8080:8080"                      Not used
-  #   depends_on:
-  #     - db
-      
-  # cloudbeaver:
-  #   image: dbeaver/cloudbeaver:latest
-  #   restart: always
-  #   ports:
-  #     - "8978:8978"                    Not used because of pgAdmin, but you can change the port if needed
-  #   depends_on:
-  #     - db
-  #   volumes:
-  #     - cloudbeaver_data:/opt/cloudbeaver/workspace
-
- 
- 
+  pgdata_master:
+  pgdata_replica:
